@@ -198,7 +198,8 @@ const unsigned long ALARM_TONE_DURATION_MS = 250;
 // ============================================
 // SCD41 CONFIGURATION
 // ============================================
-const unsigned long CO2_STALE_MS = 15000;     // Data older than this is stale
+const unsigned long CO2_STALE_MS = 30000;     // Data older than this is stale
+const uint8_t CO2_FAIL_MAX = 3;               // Consecutive failed reads before fault
 const uint16_t CO2_MIN_VALID = 100;           // Minimum plausible CO2 (sensor can read low during warmup)
 const uint16_t CO2_MAX_VALID = 40000;         // Maximum plausible CO2 reading
 
@@ -331,6 +332,7 @@ uint16_t co2_ppm_last = 0;
 bool co2_has_value = false;
 bool co2_fault = false;
 bool co2_soft_fault = false;
+uint8_t co2_fail_count = 0;
 unsigned long co2_last_update_ms = 0;
 
 // ============================================
@@ -736,12 +738,13 @@ void pollBME680() {
 }
 
 void pollSCD41_cached() {
-  co2_fault = false;
   co2_soft_fault = false;
 
   uint16_t data_ready = 0;
   if (!scd41.getDataReadyStatus(data_ready)) {
     co2_soft_fault = true;
+    co2_fail_count++;
+    co2_fault = (co2_fail_count >= CO2_FAIL_MAX);
     Serial.println(F("SCD41: Readiness check failed"));
     return;
   }
@@ -751,7 +754,8 @@ void pollSCD41_cached() {
   }
 
   if (!scd41.readMeasurement()) {
-    co2_fault = true;
+    co2_fail_count++;
+    co2_fault = (co2_fail_count >= CO2_FAIL_MAX);
     Serial.println(F("SCD41: Read measurement failed"));
     return;
   }
@@ -760,6 +764,8 @@ void pollSCD41_cached() {
 
   // Sanity check - allow low values during warmup but warn
   if (c < CO2_MIN_VALID || c > CO2_MAX_VALID) {
+    co2_fail_count++;
+    co2_fault = (co2_fail_count >= CO2_FAIL_MAX);
     #if DEBUG_VERBOSE
     Serial.print(F("SCD41: Invalid CO2 = "));
     Serial.println(c);
@@ -776,6 +782,8 @@ void pollSCD41_cached() {
     #endif
   }
 
+  co2_fail_count = 0;
+  co2_fault = false;
   co2_ppm_last = c;
   co2_has_value = true;
   co2_last_update_ms = millis();
@@ -784,7 +792,6 @@ void pollSCD41_cached() {
 void deriveCO2_ok() {
   ok_co2 = false;
   
-  if (co2_fault) return;
   if (!co2_has_value) return;
   if (upTimeMs() < SCD41_WARMUP_MS) return;
   if ((millis() - co2_last_update_ms) > CO2_STALE_MS) return;
