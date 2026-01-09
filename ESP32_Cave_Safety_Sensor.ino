@@ -415,6 +415,14 @@ static inline bool inStartupGrace() {
   return upTimeMs() < STARTUP_GRACE_MS;
 }
 
+static inline void setGreenLed(bool on) {
+  digitalWrite(PIN_LED_GREEN, on ? LOW : HIGH);
+}
+
+static inline void setRedLed(bool on) {
+  digitalWrite(PIN_LED_RED, on ? LOW : HIGH);
+}
+
 // ============================================
 // STARTUP AUDIO FEEDBACK
 // ============================================
@@ -432,13 +440,13 @@ void startupTripleBeep() {
 void criticalFailureAlarm() {
   // Continuous alternating alarm for missing critical sensors
   while (true) {
-    digitalWrite(PIN_LED_RED, HIGH);
-    digitalWrite(PIN_LED_GREEN, HIGH);
+    setRedLed(true);
+    setGreenLed(true);
     ledcWriteTone(PIN_BUZZER, 2000);
     delay(250);
     
-    digitalWrite(PIN_LED_RED, LOW);
-    digitalWrite(PIN_LED_GREEN, LOW);
+    setRedLed(false);
+    setGreenLed(false);
     ledcWriteTone(PIN_BUZZER, 2500);
     delay(250);
     
@@ -1084,12 +1092,12 @@ AirState evaluateAir() {
 
 void driveGreenLED(bool err) {
   if (inStartupGrace()) {
-    digitalWrite(PIN_LED_GREEN, HIGH);
+    setGreenLed(true);
     return;
   }
   
   if (!err) {
-    digitalWrite(PIN_LED_GREEN, HIGH);
+    setGreenLed(true);
     return;
   }
 
@@ -1099,22 +1107,22 @@ void driveGreenLED(bool err) {
     lastGreenToggleMs = now;
     greenPhase = !greenPhase;
   }
-  digitalWrite(PIN_LED_GREEN, greenPhase);
+  setGreenLed(greenPhase);
 }
 
 void driveRedLED(AirState st) {
   if (inStartupGrace()) {
-    digitalWrite(PIN_LED_RED, HIGH);
+    setRedLed(true);
     return;
   }
 
   if (st == SAFE) {
-    digitalWrite(PIN_LED_RED, LOW);
+    setRedLed(false);
     return;
   }
   
   if (st == WARN) {
-    digitalWrite(PIN_LED_RED, HIGH);
+    setRedLed(true);
     return;
   }
 
@@ -1124,7 +1132,7 @@ void driveRedLED(AirState st) {
     lastRedToggleMs = now;
     redPhase = !redPhase;
   }
-  digitalWrite(PIN_LED_RED, redPhase);
+  setRedLed(redPhase);
 }
 
 void updateFaultChirp(bool err, AirState st) {
@@ -1938,8 +1946,8 @@ void setup() {
   pinMode(PIN_LED_GREEN, OUTPUT);
   pinMode(PIN_LED_RED, OUTPUT);
 
-  digitalWrite(PIN_LED_GREEN, LOW);
-  digitalWrite(PIN_LED_RED, LOW);
+  setGreenLed(false);
+  setRedLed(false);
 
   // Setup PWM for buzzer
   ledcAttach(PIN_BUZZER, 2000, BUZZER_RESOLUTION);
@@ -1974,8 +1982,8 @@ void setup() {
   esp_task_wdt_reset();
 
   // Visual/audio startup indication
-  digitalWrite(PIN_LED_GREEN, HIGH);
-  digitalWrite(PIN_LED_RED, HIGH);
+  setGreenLed(true);
+  setRedLed(true);
   startupTripleBeep();
 
   // Initialize I2C
