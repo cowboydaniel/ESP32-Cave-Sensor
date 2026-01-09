@@ -750,16 +750,7 @@ void pollBME680() {
 void pollSCD41_cached() {
   co2_soft_fault = false;
 
-  uint16_t data_ready = 0;
-  if (!scd41.getDataReadyStatus(data_ready)) {
-    co2_soft_fault = true;
-    co2_fail_count++;
-    co2_fault = (co2_fail_count >= CO2_FAIL_MAX);
-    Serial.println(F("SCD41: Readiness check failed"));
-    return;
-  }
-
-  if ((data_ready & 0x07FF) == 0) {
+  if (!scd41.getDataReadyStatus()) {
     return;
   }
 
