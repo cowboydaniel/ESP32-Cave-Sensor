@@ -330,6 +330,7 @@ uint16_t h2_ppm = 0;
 uint16_t co2_ppm_last = 0;
 bool co2_has_value = false;
 bool co2_fault = false;
+bool co2_soft_fault = false;
 unsigned long co2_last_update_ms = 0;
 
 // ============================================
@@ -736,8 +737,16 @@ void pollBME680() {
 
 void pollSCD41_cached() {
   co2_fault = false;
+  co2_soft_fault = false;
 
-  if (!scd41.getDataReadyStatus()) {
+  uint16_t data_ready = 0;
+  if (!scd41.getDataReadyStatus(data_ready)) {
+    co2_soft_fault = true;
+    Serial.println(F("SCD41: Readiness check failed"));
+    return;
+  }
+
+  if ((data_ready & 0x07FF) == 0) {
     return;
   }
 
