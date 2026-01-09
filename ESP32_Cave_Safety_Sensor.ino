@@ -199,6 +199,7 @@ const unsigned long ALARM_TONE_DURATION_MS = 250;
 // SCD41 CONFIGURATION
 // ============================================
 const unsigned long CO2_STALE_MS = 30000;     // Data older than this is stale
+const unsigned long CO2_SAMPLE_INTERVAL_MS = 5000; // Expected periodic sample interval
 const uint8_t CO2_FAIL_MAX = 3;               // Consecutive failed reads before fault
 const uint16_t CO2_MIN_VALID = 100;           // Minimum plausible CO2 (sensor can read low during warmup)
 const uint16_t CO2_MAX_VALID = 40000;         // Maximum plausible CO2 reading
@@ -222,6 +223,7 @@ enum AirState : uint8_t {
 enum SensorStatus : uint8_t {
   SS_MISSING,   // Sensor not detected at boot
   SS_WARMUP,    // Sensor warming up
+  SS_WAITING,   // Sensor detected, awaiting fresh sample
   SS_OK,        // Sensor operational
   SS_ERROR      // Sensor detected but not responding
 };
@@ -793,6 +795,7 @@ void deriveCO2_ok() {
   ok_co2 = false;
   
   if (!co2_has_value) return;
+  if (co2_fault) return;
   if (upTimeMs() < SCD41_WARMUP_MS) return;
   if ((millis() - co2_last_update_ms) > CO2_STALE_MS) return;
   
@@ -919,7 +922,12 @@ SensorStatus statusBME() {
 SensorStatus statusSCD() {
   if (!scd_init_ok) return SS_MISSING;
   if (upTimeMs() < SCD41_WARMUP_MS) return SS_WARMUP;
-  return ok_co2 ? SS_OK : SS_ERROR;
+  unsigned long age_ms = millis() - co2_last_update_ms;
+  bool stale = co2_has_value && (age_ms > CO2_STALE_MS);
+  if (co2_fault || stale) return SS_ERROR;
+  if (!co2_has_value) return SS_WAITING;
+  if (age_ms > CO2_SAMPLE_INTERVAL_MS) return SS_WAITING;
+  return ok_co2 ? SS_OK : SS_WAITING;
 }
 
 SensorStatus statusO2() {
@@ -968,6 +976,7 @@ const char* ssText(SensorStatus s) {
   switch (s) {
     case SS_MISSING: return "MISS";
     case SS_WARMUP: return "WARM";
+    case SS_WAITING: return "WAIT";
     case SS_OK: return "OK";
     default: return "ERR";
   }
@@ -982,7 +991,10 @@ bool sensorsError() {
 
   // Only check sensors that were present at boot
   if (expected_bme && statusBME() == SS_ERROR) return true;
-  if (expected_scd && statusSCD() == SS_ERROR) return true;
+  if (expected_scd) {
+    bool scd_stale = co2_has_value && (millis() - co2_last_update_ms) > CO2_STALE_MS;
+    if (co2_fault || scd_stale) return true;
+  }
   if (expected_o2 && statusO2() == SS_ERROR) return true;
   if (expected_mq5 && statusMQ5() == SS_ERROR) return true;
   if (expected_h2s && statusH2S() == SS_ERROR) return true;
@@ -1010,7 +1022,7 @@ AirState evaluateAir() {
   }
 
   // Carbon Dioxide
-  if (statusSCD() == SS_OK) {
+  if (ok_co2) {
     if (co2_ppm_last >= CO2_ALARM) {
       alarm = true;
     } else if (co2_ppm_last >= CO2_WARN) {
@@ -1733,7 +1745,7 @@ void updateDisplay() {
   if (statusMQ5() == SS_OK && ((MQ5_R0_RAW - mq5_raw) >= MQ5_WARN_DROP)) explosiveIssue = true;
 
   if (statusO2() == SS_OK && (o2_pct < O2_WARN || o2_pct > O2_HIGH_WARN)) environmentIssue = true;
-  if (statusSCD() == SS_OK && (co2_ppm_last >= CO2_WARN)) environmentIssue = true;
+  if (ok_co2 && (co2_ppm_last >= CO2_WARN)) environmentIssue = true;
 
   // If alarm or warning, show only relevant pages
   if (st == ALARM || st == WARN) {
